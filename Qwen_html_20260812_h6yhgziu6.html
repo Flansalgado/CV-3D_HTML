@@ -394,8 +394,9 @@ const easeOutBack=x=>{const c1=1.2,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.p
 const canvas=document.getElementById('scene');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
-renderer.shadowMap.enabled=false;
-renderer.toneMapping=THREE.NoToneMapping;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.0;
 
 const scene=new THREE.Scene();
@@ -406,20 +407,36 @@ const camera=new THREE.PerspectiveCamera(48,1,.1,160);
 scene.add(new THREE.HemisphereLight(0xe9f1f9,0xd9d2c4,0.6));
 const sun=new THREE.DirectionalLight(0xffdcae,0.8);
 sun.position.set(16,26,12);
+sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near=0.5;
+sun.shadow.camera.far=50;
+sun.shadow.camera.left=-20;
+sun.shadow.camera.right=20;
+sun.shadow.camera.top=20;
+sun.shadow.camera.bottom=-20;
 scene.add(sun);
 
-// Materiales de línea para arquitectura wireframe
+// Materiales para arquitectura (columnas y pisos en wireframe)
 const lineMat = new THREE.LineBasicMaterial({color:0x3c4654,linewidth:1});
 const lineMatYel = new THREE.LineBasicMaterial({color:0xf5a623,linewidth:1});
-const lineMatDark = new THREE.LineBasicMaterial({color:0x2e3744,linewidth:1});
 const lineMatGlass = new THREE.LineBasicMaterial({color:0x5fa8cf,transparent:true,opacity:0.4});
 const lineMatBrace = new THREE.LineBasicMaterial({color:0xd99a2b,linewidth:1});
 
-// Funciones helper para crear líneas wireframe
+// Materiales estándar para el resto de elementos 3D
+const matConcrete = new THREE.MeshStandardMaterial({color:0x7a8599,roughness:0.9,metalness:0.1});
+const matSteel = new THREE.MeshStandardMaterial({color:0x5c6b7d,roughness:0.4,metalness:0.8});
+const matYellow = new THREE.MeshStandardMaterial({color:0xf5a623,roughness:0.5,metalness:0.3});
+const matDark = new THREE.MeshStandardMaterial({color:0x2e3744,roughness:0.6,metalness:0.2});
+const matGlass = new THREE.MeshPhysicalMaterial({color:0x8fd3f4,transparent:true,opacity:0.35,transmission:0.6,roughness:0.1,metalness:0.1});
+const matOrange = new THREE.MeshStandardMaterial({color:0xd97706,roughness:0.5,metalness:0.2});
+
+// Funciones helper para crear geometría
 const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 const Cy=(r,h,s=14)=>new THREE.CylinderGeometry(r,r,h,s);
 function addLine(parent,g,mt,p,r){const ln=new THREE.LineSegments(new THREE.EdgesGeometry(g),mt);if(p)ln.position.set(p[0],p[1],p[2]);if(r)ln.rotation.set(r[0],r[1],r[2]);parent.add(ln);return ln;}
 function addWireBox(parent,w,h,d,mt,p,r){const ln=new THREE.LineSegments(new THREE.EdgesGeometry(B(w,h,d)),mt);if(p)ln.position.set(p[0],p[1],p[2]);if(r)ln.rotation.set(r[0],r[1],r[2]);parent.add(ln);return ln;}
+function addBox(parent,w,h,d,mt,p,r){const m=new THREE.Mesh(B(w,h,d),mt);if(p)m.position.set(p[0],p[1],p[2]);if(r)m.rotation.set(r[0],r[1],r[2]);m.castShadow=true;m.receiveShadow=true;parent.add(m);return m;}
 
 /* ═════════ ANIMACIONES DE CONSTRUCCIÓN ═════════ */
 const anims=[]; let phases=[], maxScroll=1, gateT=1;
@@ -449,7 +466,7 @@ function buildSite(){
   const grid=new THREE.GridHelper(90,54,0xc4d2e0,0xd7dfe9);
   grid.position.y=.18;grid.material.transparent=true;grid.material.opacity=.55;scene.add(grid);
 
-  // Valla perimetral en wireframe
+  // Valla perimetral en 3D sólido
   const fx=12.4,fz=8.8;
   const side=(x1,z1,x2,z2)=>{
     const alongX=Math.abs(x2-x1)>Math.abs(z2-z1);
@@ -457,23 +474,30 @@ function buildSite(){
     const cx=(x1+x2)/2, cz=(z1+z2)/2, n=Math.max(2,Math.round(len/2.48));
     for(let k=0;k<=n;k++){
       const px=alongX?x1+(x2-x1)*k/n:x1, pz=alongX?z1:z1+(z2-z1)*k/n;
-      addWireBox(scene,.08,1.1,.08,lineMatDark,[px,.67,pz]);
+      addBox(scene,.08,1.1,.08,matDark,[px,.67,pz]);
     }
     const rotY=alongX?0:Math.PI/2;
-    [1.05,.55].forEach(ry=>{const r=addWireBox(scene,len,.045,.045,lineMatYel,[cx,.12+ry,cz]);r.rotation.y=rotY;});
+    [1.05,.55].forEach(ry=>{const r=addBox(scene,len,.045,.045,matYellow,[cx,.12+ry,cz]);r.rotation.y=rotY;});
   };
   side(-fx,-fz,fx,-fz);side(fx,-fz,fx,fz);side(fx,fz,-fx,fz);side(-fx,fz,-fx,-fz);
 
-  // Conos de tráfico en wireframe
+  // Conos de tráfico en 3D sólido
   [[6.6,6.9],[8,5.9],[6.1,5.2]].forEach(([x,z])=>{
-    const cone=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.ConeGeometry(.17,.42,12)),lineMatYel);
-    cone.position.set(x,.33,z);scene.add(cone);
+    const coneGeo=new THREE.ConeGeometry(.17,.42,12);
+    const cone=new THREE.Mesh(coneGeo,matOrange);
+    cone.position.set(x,.33,z);
+    cone.castShadow=true;cone.receiveShadow=true;
+    scene.add(cone);
   });
   
-  // Materiales y elementos simplificados
+  // Reflectores en 3D sólido
   [[10.6,6.6],[-10.8,-6.4]].forEach(([x,z])=>{
-    addWireBox(scene,.07,4.6,.07,lineMatDark,[x,.12+2.3,z]);
-    const head=addWireBox(scene,.55,.28,.24,lineMatDark,[x,4.8,z]);head.lookAt(0,3,0);
+    const poleGeo=Cy(.07,4.6);
+    const pole=new THREE.Mesh(poleGeo,matDark);
+    pole.position.set(x,.12+2.3,z);
+    pole.castShadow=true;pole.receiveShadow=true;
+    scene.add(pole);
+    const head=addBox(scene,.55,.28,.24,matDark,[x,4.8,z]);head.lookAt(0,3,0);
   });
 }
 
@@ -481,28 +505,35 @@ function buildSite(){
 let craneTop,trolley,cable,hook,beaconMat,beaconMat2;
 function buildCrane(){
   const g=new THREE.Group();g.position.set(-7.6,0,-3.2);
-  addWireBox(g,2.2,.5,2.2,lineMatDark,[0,.37,0]);
+  // Base en wireframe (líneas)
+  addWireBox(g,2.2,.5,2.2,lineMat,[0,.37,0]);
+  // Torre principal en wireframe (líneas)
   addWireBox(g,.85,18,.85,lineMatYel,[0,9.62,0]);
-  for(let i=0;i<4;i++)addWireBox(g,1,.12,1,lineMatDark,[0,3+i*4.2,0]);
+  for(let i=0;i<4;i++)addWireBox(g,1,.12,1,lineMat,[0,3+i*4.2,0]);
   craneTop=new THREE.Group();craneTop.position.y=18.7;
-  addWireBox(craneTop,1.1,1.15,1.3,lineMatDark,[0,.1,-.1]);
+  addWireBox(craneTop,1.1,1.15,1.3,lineMat,[0,.1,-.1]);
   addWireBox(craneTop,11.6,.5,.5,lineMatYel,[4.9,.78,0]);
   addWireBox(craneTop,4,.55,.55,lineMatYel,[-2.4,.78,0]);
-  addWireBox(craneTop,1.4,1.4,1.1,lineMatDark,[-3.8,.5,0]);
+  addWireBox(craneTop,1.4,1.4,1.1,lineMat,[-3.8,.5,0]);
   addWireBox(craneTop,.3,2.1,.3,lineMatYel,[0,1.9,0]);
-  const tie=(a,b)=>{const l=a.distanceTo(b);const ln=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([a,b]),lineMatDark);craneTop.add(ln);};
+  // Tirantes como líneas
+  const tie=(a,b)=>{const l=a.distanceTo(b);const ln=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([a,b]),lineMat);craneTop.add(ln);};
   tie(new THREE.Vector3(0,2.9,0),new THREE.Vector3(10.4,.78,0));
   tie(new THREE.Vector3(0,2.9,0),new THREE.Vector3(-3.8,.95,0));
   trolley=new THREE.Group();trolley.position.set(6.5,.42,0);
-  addWireBox(trolley,.6,.28,.6,lineMatDark,[0,0,0]);
+  addWireBox(trolley,.6,.28,.6,lineMat,[0,0,0]);
   const cg=Cy(.025,1,6);cg.translate(0,-.5,0);
-  cable=new THREE.LineSegments(new THREE.EdgesGeometry(cg),lineMatDark);cable.castShadow=false;trolley.add(cable);
+  cable=new THREE.LineSegments(new THREE.EdgesGeometry(cg),lineMat);cable.castShadow=false;trolley.add(cable);
   hook=new THREE.Group();
-  addWireBox(hook,.3,.34,.3,lineMatDark,[0,0,0]);
-  addWireBox(hook,1.7,.14,1.1,lineMatDark,[0,-.4,0]);
+  addWireBox(hook,.3,.34,.3,lineMat,[0,0,0]);
+  addWireBox(hook,1.7,.14,1.1,lineMat,[0,-.4,0]);
   trolley.add(hook);craneTop.add(trolley);g.add(craneTop);
-  beaconMat=new THREE.LineBasicMaterial({color:0xff5533});
-  const beacon=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.SphereGeometry(.14,10,10)),beaconMat);beacon.position.set(0,3.05,0);craneTop.add(beacon);
+  beaconMat=new THREE.MeshStandardMaterial({color:0xff5533,emissive:0xff5533,emissiveIntensity:0.8});
+  const beaconGeo=Cy(.14,.28,10);
+  const beacon=new THREE.Mesh(beaconGeo,beaconMat);
+  beacon.position.set(0,3.05,0);
+  beacon.castShadow=true;beacon.receiveShadow=true;
+  craneTop.add(beacon);
   scene.add(g);
 }
 
@@ -510,6 +541,7 @@ function buildCrane(){
 const zoneLines=[];
 function buildFoundation(){
   const fg=new THREE.Group();fg.position.y=.25;
+  // Cimentación en wireframe (líneas)
   addWireBox(fg,9.4,.5,7.4,lineMat,[0,0,0]);
   addWireBox(fg,9.46,.12,.08,lineMatYel,[0,0,3.72]);addWireBox(fg,9.46,.12,.08,lineMatYel,[0,0,-3.72]);
   scene.add(fg);reg(fg,1,.15,.8,'drop',{ty:.25,drop:3});
@@ -517,6 +549,7 @@ function buildFoundation(){
 function buildLevel(i,secIdx,{glass=true,brace=false}={}){
   const base=BASES[i];
   const cg=new THREE.Group();cg.position.y=base;
+  // Columnas en wireframe (líneas) - esto es lo único que querías cambiar
   for(const x of[-3.3,0,3.3])for(const z of[-2.3,2.3]){
     addWireBox(cg,.42,FLOOR_H,.42,lineMat,[x,FLOOR_H/2,z]);
   }
@@ -536,6 +569,7 @@ function buildLevel(i,secIdx,{glass=true,brace=false}={}){
     for(const x of[-3,-1.5,0,1.5,3]){addWireBox(gg,.06,gh,.07,lineMatGlass,[x,gy,2.68]);addWireBox(gg,.06,gh,.07,lineMatGlass,[x,gy,-2.68]);}
     scene.add(gg);regFade(gg,secIdx,.45,.95);
   }
+  // Losas/pisos en wireframe (líneas) - esto es lo único que querías cambiar
   const sy=base+FLOOR_H+SLAB/2,sg=new THREE.Group();sg.position.y=sy;
   addWireBox(sg,7.8,SLAB,5.8,lineMat,[0,0,0]);
   addWireBox(sg,7.86,.13,.06,lineMatYel,[0,0,2.93]);addWireBox(sg,7.86,.13,.06,lineMatYel,[0,0,-2.93]);
@@ -546,32 +580,39 @@ let trayMat;
 function buildMEP(){
   const H=14.75,specs=[[4.05,1.7,'#c77b3a'],[4.05,2.0,'#3aa06f'],[4.05,2.3,'#4a8fd9']];
   specs.forEach(([x,z,c])=>{
-    const pipe=new THREE.LineSegments(new THREE.EdgesGeometry(Cy(.085,H)),new THREE.LineBasicMaterial({color:c}));
-    pipe.position.set(x,H/2,z);scene.add(pipe);
+    const pipeMat=new THREE.MeshStandardMaterial({color:c});
+    const pipeGeo=Cy(.085,H);
+    const pipe=new THREE.Mesh(pipeGeo,pipeMat);
+    pipe.position.set(x,H/2,z);
+    pipe.castShadow=true;pipe.receiveShadow=true;
+    scene.add(pipe);
     reg(pipe,3,.1,.9,'grow');
   });
   const trayMatColor=0xf2b23a;
   const tg=B(.3,H,.14);tg.translate(0,H/2,0);
-  trayMat=new THREE.LineBasicMaterial({color:trayMatColor});
-  const tray=new THREE.LineSegments(new THREE.EdgesGeometry(tg),trayMat);tray.position.set(-4.05,.5,1.9);
+  trayMat=new THREE.MeshStandardMaterial({color:trayMatColor});
+  const tray=new THREE.Mesh(tg,trayMat);tray.position.set(-4.05,.5,1.9);
+  tray.castShadow=true;tray.receiveShadow=true;
   scene.add(tray);reg(tray,4,.1,.9,'grow');
 }
 function buildRoof(){
   const secIdx=7,y0=15.25;
   const pg=new THREE.Group();
+  // Borde del techo en wireframe (líneas)
   addWireBox(pg,7.8,.5,.12,lineMat,[0,y0+.25,2.84]);addWireBox(pg,7.8,.5,.12,lineMat,[0,y0+.25,-2.84]);
   addWireBox(pg,.12,.5,5.8,lineMat,[3.84,y0+.25,0]);addWireBox(pg,.12,.5,5.8,lineMat,[-3.84,y0+.25,0]);
   scene.add(pg);regFade(pg,secIdx,.05,.4);
 
   const mk=(px,pz,fn)=>{const grp=new THREE.Group();grp.position.set(px,y0,pz);fn(grp);scene.add(grp);return grp;};
   const eq=[];
-  eq.push(mk(-1.8,1.2,g=>{addWireBox(g,1.3,.85,.95,lineMat,[0,.42,0]);addWireBox(g,.28,.12,.28,lineMatDark,[0,.9,0]);}));
+  // Equipos del techo en wireframe (líneas)
+  eq.push(mk(-1.8,1.2,g=>{addWireBox(g,1.3,.85,.95,lineMat,[0,.42,0]);addWireBox(g,.28,.12,.28,lineMat,[0,.9,0]);}));
   eq.push(mk(2.2,-1.5,g=>addWireBox(g,.9,.7,.8,lineMat,[0,.35,0])));
   eq.push(mk(1.2,1.8,g=>addWireBox(g,.22,1.1,.22,lineMat,[0,.55,0])));
-  eq.push(mk(-1.6,-1.6,g=>addWireBox(g,1.5,.06,1,lineMatDark,[0,.45,0])));
-  beaconMat2=new THREE.LineBasicMaterial({color:0xff5533});
-  eq.push(mk(3.2,2.1,g=>{addWireBox(g,.04,1.9,.04,lineMatDark,[0,.95,0]);addWireBox(g,.09,.09,.09,beaconMat2,[0,1.95,0]);}));
-  eq.push(mk(4.05,2.0,g=>{[-0.3,0,.3].forEach(dz=>addWireBox(g,.12,.12,.12,new THREE.LineBasicMaterial({color:0xc77b3a}),[0,.12,dz]));}));
+  eq.push(mk(-1.6,-1.6,g=>addWireBox(g,1.5,.06,1,lineMat,[0,.45,0])));
+  beaconMat2=new THREE.MeshStandardMaterial({color:0xff5533,emissive:0xff5533,emissiveIntensity:0.8});
+  eq.push(mk(3.2,2.1,g=>{const poleGeo=Cy(.04,1.9);const pole=new THREE.Mesh(poleGeo,lineMat);pole.position.set(0,.95,0);g.add(pole);const beacon2Geo=Cy(.09,.09,10);const beacon2=new THREE.Mesh(beacon2Geo,beaconMat2);beacon2.position.set(0,1.95,0);beacon2.castShadow=true;beacon2.receiveShadow=true;g.add(beacon2);}));
+  eq.push(mk(4.05,2.0,g=>{[-0.3,0,.3].forEach(dz=>addBox(g,.12,.12,.12,new THREE.MeshStandardMaterial({color:0xc77b3a}),[0,.12,dz]));}));
   eq.forEach((grp,k)=>reg(grp,secIdx,.25+k*.07,.62+k*.07,'pop'));
 }
 
@@ -600,31 +641,31 @@ function buildWorkers(){
   ];
   spots.forEach((s,i)=>{
     const g=new THREE.Group();
-    const vestMat=new THREE.LineBasicMaterial({color:vestCols[i]});
-    const pantMat=new THREE.LineBasicMaterial({color:0x2e3744});
-    const skinMat=new THREE.LineBasicMaterial({color:0xe8b98a});
-    const hatMat=new THREE.LineBasicMaterial({color:hatCols[i]});
-    // Piernas
-    addWireBox(g,.09,.3,.09,pantMat,[-.07,.15,0]);
-    addWireBox(g,.09,.3,.09,pantMat,[.07,.15,0]);
-    // Cuerpo
-    addWireBox(g,.28,.3,.14,vestMat,[0,.62,0]);
-    // Brazos
-    addWireBox(g,.07,.28,.07,vestMat,[-.16,.78,0],[-.3,0,0]);
-    addWireBox(g,.07,.28,.07,vestMat,[.16,.78,0],[.3,0,0]);
-    // Cabeza
-    addWireBox(g,.23,.23,.23,skinMat,[0,.98,0]);
-    // Casco
-    addWireBox(g,.26,.1,.26,hatMat,[0,.99,0]);
-    // Plano/blueprint
+    const vestMatS=new THREE.MeshStandardMaterial({color:vestCols[i]});
+    const pantMatS=new THREE.MeshStandardMaterial({color:0x2e3744});
+    const skinMatS=new THREE.MeshStandardMaterial({color:0xe8b98a});
+    const hatMatS=new THREE.MeshStandardMaterial({color:hatCols[i]});
+    // Piernas en 3D sólido
+    addBox(g,.09,.3,.09,pantMatS,[-.07,.15,0]);
+    addBox(g,.09,.3,.09,pantMatS,[.07,.15,0]);
+    // Cuerpo en 3D sólido
+    addBox(g,.28,.3,.14,vestMatS,[0,.62,0]);
+    // Brazos en 3D sólido
+    addBox(g,.07,.28,.07,vestMatS,[-.16,.78,0],[-.3,0,0]);
+    addBox(g,.07,.28,.07,vestMatS,[.16,.78,0],[.3,0,0]);
+    // Cabeza en 3D sólido
+    addBox(g,.23,.23,.23,skinMatS,[0,.98,0]);
+    // Casco en 3D sólido
+    addBox(g,.26,.1,.26,hatMatS,[0,.99,0]);
+    // Plano/blueprint en 3D sólido
     const bp=new THREE.Group();bp.position.set(0,.66,.24);bp.rotation.x=-.55;
-    const sheet=addWireBox(bp,.4,.28,.012,new THREE.LineBasicMaterial({color:0xffffff}),[0,0,0]);sheet.castShadow=false;bp.add(sheet);
+    const sheet=addBox(bp,.4,.28,.012,new THREE.MeshStandardMaterial({color:0xffffff}),[0,0,0]);sheet.castShadow=false;bp.add(sheet);
     bp.add(new THREE.LineSegments(new THREE.EdgesGeometry(B(.4,.28,.012)),new THREE.LineBasicMaterial({color:0x0b7285})));
     g.add(bp);
     g.position.set(0,s.fy,s.z);
     g.scale.setScalar(.001);g.visible=false;
     scene.add(g);
-    workers.push({g,vestMat,pantMat,...s});
+    workers.push({g,vestMat:pantMatS,...s});
   });
 }
 function updateWorkers(t,time,dt){
@@ -651,8 +692,8 @@ function buildElectricity(){
   paths.forEach(([x,z,c],pi)=>{
     for(let k=0;k<3;k++){
       const pulseGeo=new THREE.SphereGeometry(.08,8,8);
-      const pulseMat=new THREE.LineBasicMaterial({color:c});
-      const m=new THREE.LineSegments(new THREE.EdgesGeometry(pulseGeo),pulseMat);
+      const pulseMat=new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.6});
+      const m=new THREE.Mesh(pulseGeo,pulseMat);
       m.castShadow=false;scene.add(m);
       pulses.push({m,x,z,sp:2.2+pi*.3+k*.25,off:k/3,len:14.5,y0:.65});
     }
